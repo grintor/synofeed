@@ -1,0 +1,100 @@
+<html>
+	<head>
+		<script src="https://cdn.jsdelivr.net/npm/hls.js@0.12.4"></script>
+		<style>
+			body {
+				margin: 0;
+				text-align: center;
+			}
+		</style>
+	</head>
+	<body>
+		<video id="video" style="width: 100%; height: 100%;" controls muted></video>
+		<script>
+			// get cam list like this: http://x.x.x.x:5000/webapi/entry.cgi?privCamType=3&version=%228%22&api=%22SYNO.SurveillanceStation.Camera%22&basic=true&blFromCamList=true&camStm=1&method=%22List%22
+			var username = "liveViewOnlyUser";
+			var password = "liveViewOnlyPass";
+			var cameraId = 19; //or 25?
+			
+			var video = document.getElementById('video');
+			var sid;
+			var keepAlive;
+
+			document.addEventListener("DOMContentLoaded", getSID);
+			var hls = new Hls();
+			hls.attachMedia(video);
+			
+			function getSID() {
+				var sid_request = new XMLHttpRequest();
+				sid_request.responseType = 'json';
+				sid_request.onload = function (oEvent) {
+					sid = sid_request.response.data.sid;
+					console.log("Got the following SID: " + sid)
+					setInterval(keepAlive ,60000);
+					openStream()
+				}
+				sid_request.open('GET', '/webapi/auth.cgi?api=SYNO.API.Auth&method=Login&version=2&session=SurveillanceStation&format=sid&account=' + username + '&passwd=' + password);
+				console.log("Trying to get a SID.")
+				sid_request.send();
+			}
+			
+			function keepAlive(){
+				var keepalive_request = new XMLHttpRequest();
+				keepalive_request.onload = function (oEvent) {
+					resp = keepalive_request.responseText;
+					console.log("Got the following keepalive request response: " + resp)
+				}
+				keepalive_request.open('GET', '/webapi/entry.cgi?api="SYNO.SurveillanceStation.Event"&version="4"&method="Keepalive"&_sid=' + sid);
+				keepalive_request.send();
+				
+			}
+			
+			function openStream() {
+				var openStream_request = new XMLHttpRequest();
+				openStream_request.onload = function (oEvent) {
+					console.log("open stream request response: " + openStream_request.responseText)
+					startHLS()
+				}
+				openStream_request.open('GET', '/webapi/SurveillanceStation/videoStreaming.cgi?api=SYNO.SurveillanceStation.VideoStream&method=Open&version=1&cameraId='+cameraId+'&format=hls&_sid=' + sid);
+				console.log("Trying to open a stream")
+				openStream_request.send();
+			}
+			
+			function startHLS() {
+				hls.on(Hls.Events.ERROR, function (event, data) {
+				if (data.fatal) {
+					  switch(data.type) {
+					  case Hls.ErrorTypes.NETWORK_ERROR:
+						// try to recover network error
+						console.log("fatal network error encountered, try to recover");
+						hls.startLoad();
+						break;
+					  case Hls.ErrorTypes.MEDIA_ERROR:
+						console.log("fatal media error encountered, try to recover");
+						hls.recoverMediaError();
+						break;
+					  default:
+						// cannot recover
+						console.log("fatal unknown error encountered, destroying");
+						hls.destroy();
+						break;
+					  }
+					}
+				});
+				hls.on(Hls.Events.MANIFEST_PARSED,function() {
+					console.log("playing")
+					video.play();
+				});
+				hls.loadSource('/webapi/SurveillanceStation/videoStreaming.cgi?api=SYNO.SurveillanceStation.VideoStream&method=Stream&version=1&cameraId='+cameraId+'&format=hls&_sid=' + sid);
+				console.log("Trying to load the stream")
+				
+				
+			}
+		</script>
+	</body>
+</html>
+		
+		
+		
+		
+		
