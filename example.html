@@ -14,11 +14,12 @@
 			// get cam list like this: http://x.x.x.x:5000/webapi/entry.cgi?privCamType=3&version=%228%22&api=%22SYNO.SurveillanceStation.Camera%22&basic=true&blFromCamList=true&camStm=1&method=%22List%22
 			var username = "liveViewOnlyUser";
 			var password = "liveViewOnlyPass";
-			var cameraId = 19; //or 25?
+			var cameraId = 19;
 			
 			var video = document.getElementById('video');
 			var sid;
 			var keepAlive;
+			var keepAliveInterval;
 
 			document.addEventListener("DOMContentLoaded", getSID);
 			var hls = new Hls();
@@ -30,11 +31,16 @@
 				sid_request.onload = function (oEvent) {
 					sid = sid_request.response.data.sid;
 					console.log("Got the following SID: " + sid)
-					setInterval(keepAlive ,60000);
-					openStream()
+					keepAliveInterval = setInterval(keepAlive ,60000);
+					openStream();
+				}
+				sid_request.onerror = function (oEvent) {
+					console.log("error while trying to getSID. Retrying")
+					clearInterval(keepAliveInterval);
+					getSID();
 				}
 				sid_request.open('GET', '/webapi/auth.cgi?api=SYNO.API.Auth&method=Login&version=2&session=SurveillanceStation&format=sid&account=' + username + '&passwd=' + password);
-				console.log("Trying to get a SID.")
+				console.log("Trying to get a SID.");
 				sid_request.send();
 			}
 			
@@ -43,6 +49,9 @@
 				keepalive_request.onload = function (oEvent) {
 					resp = keepalive_request.responseText;
 					console.log("Got the following keepalive request response: " + resp)
+				}
+				keepalive_request.onerror = function (oEvent) {
+					console.log("error error in keepalive request.")
 				}
 				keepalive_request.open('GET', '/webapi/entry.cgi?api="SYNO.SurveillanceStation.Event"&version="4"&method="Keepalive"&_sid=' + sid);
 				keepalive_request.send();
@@ -54,6 +63,10 @@
 				openStream_request.onload = function (oEvent) {
 					console.log("open stream request response: " + openStream_request.responseText)
 					startHLS()
+				}
+				openStream_request.onerror = function (oEvent) {
+					console.log("error opening stream. retrying")
+					openStream()
 				}
 				openStream_request.open('GET', '/webapi/SurveillanceStation/videoStreaming.cgi?api=SYNO.SurveillanceStation.VideoStream&method=Open&version=1&cameraId='+cameraId+'&format=hls&_sid=' + sid);
 				console.log("Trying to open a stream")
@@ -67,16 +80,16 @@
 					  case Hls.ErrorTypes.NETWORK_ERROR:
 						// try to recover network error
 						console.log("fatal network error encountered, try to recover");
-						hls.startLoad();
+						startOver()
 						break;
 					  case Hls.ErrorTypes.MEDIA_ERROR:
 						console.log("fatal media error encountered, try to recover");
-						hls.recoverMediaError();
+						startOver()
 						break;
 					  default:
 						// cannot recover
-						console.log("fatal unknown error encountered, destroying");
-						hls.destroy();
+						console.log("fatal unknown error encountered, try to recover");
+						startOver()
 						break;
 					  }
 					}
@@ -87,9 +100,53 @@
 				});
 				hls.loadSource('/webapi/SurveillanceStation/videoStreaming.cgi?api=SYNO.SurveillanceStation.VideoStream&method=Stream&version=1&cameraId='+cameraId+'&format=hls&_sid=' + sid);
 				console.log("Trying to load the stream")
-				
-				
 			}
+			
+			function startOver(){
+				console.log('starting over...')
+				// stop the keepalive
+				clearInterval(keepAliveInterval);
+				
+				function logOut(){
+					console.log('logging out')
+					var logOut_request = new XMLHttpRequest();
+					logOut_request.onload = function (oEvent) {
+						console.log('logged out')
+						hls.destroy();
+						hls = new Hls();
+						hls.attachMedia(video);
+						getSID();
+					}
+					logOut_request.onerror = function (oEvent) {
+						console.log('loged out')
+						hls.destroy();
+						hls = new Hls();
+						hls.attachMedia(video);
+						getSID();
+					}
+					logOut_request.open('GET', '/webapi/auth.cgi?api=SYNO.API.Auth&method=Logout&version=2&session=SurveillanceStation&_sid=' + sid);
+					logOut_request.send();
+				}
+				
+				
+				
+				// close the stream
+				console.log('closing the stream')
+				var closeStream_request = new XMLHttpRequest();
+				closeStream_request.onload = function (oEvent) {
+					console.log('stream closed')
+					logOut()
+				}
+				closeStream_request.onerror = function (oEvent) {
+					console.log('stream closed')
+					logOut()
+				}
+				closeStream_request.open('GET', '/webapi/SurveillanceStation/videoStreaming.cgi?api=SYNO.SurveillanceStation.VideoStream&method=Close&version=1&cameraId='+cameraId+'&_sid=' + sid);
+				closeStream_request.send();
+				
+
+			}
+			
 		</script>
 	</body>
 </html>
